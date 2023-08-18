@@ -280,7 +280,7 @@ def animate(frame):
 n = 10
 num_agents = 1
 num_dirt_blocks = 20  # Número de espacios sucios iniciales
-max_steps = 1000  # Máximo de pasos en la simulación
+max_steps = 80  # Máximo de pasos en la simulación
 t=0
 # Simulación con una configuración específica
 if t==1:
@@ -308,7 +308,7 @@ if t==1:
     else:
         print("Postconditions not met")
 else:
-    num_attempts = 1000
+    num_attempts = 100
     performance_results = []
     satisfied_postconditions = []
     time_result = []
