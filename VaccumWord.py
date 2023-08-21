@@ -7,15 +7,14 @@ from mesa import Agent, Model
 from mesa.time import RandomActivation
 from mesa.space import MultiGrid
 class WorldMap:
-    def __init__(self, rows, cols, num_dirt_blocks):
+    def __init__(self, rows, cols, num_dirt_blocks, num_obs):
         self.rows = rows
         self.cols = cols
         self.num_dirt_blocks = num_dirt_blocks
+        self.num_obs = num_obs
         self.world_map = [['clean' for _ in range(cols)] for _ in range(rows)]
 
-        self.agent_row = 0
-        self.agent_col = 0
-        self.world_map[self.agent_row][self.agent_col] = 'agent'
+        self.agent_positions = {}  # Dictionary to store agent positions
 
         # Place dirt blocks randomly on the map
         for _ in range(num_dirt_blocks):
@@ -27,7 +26,7 @@ class WorldMap:
             self.world_map[row][col] = 'dirt'
 
         # Place obstacles randomly on the map (excluding corners)
-        for _ in range(round(num_dirt_blocks / 2)):
+        for _ in range(num_obs):
             row = random.randint(1, rows - 2)  # Avoid corners
             col = random.randint(1, cols - 2)  # Avoid corners
             while self.world_map[row][col] == 'dirt' or self.world_map[row][col] == 'agent' or self.world_map[row][col] == 'obs':
@@ -35,30 +34,49 @@ class WorldMap:
                 col = random.randint(1, cols - 2)  # Avoid corners
             self.world_map[row][col] = 'obs'
 
-    def getAgentPos(self):
-        return (self.agent_row ,self.agent_col)
-    
-    def move_agent(self, agent, current_position, new_position):
-        self.world_map[current_position[0]][current_position[1]] = 'clean'
-        self.world_map[new_position[0]][new_position[1]] = 'agent'
-        self.agent_row,self.agent_col = new_position
+    def add_agent(self, agent_id):
+        while True:
+            row = random.randint(0, self.rows - 1)
+            col = random.randint(0, self.cols - 1)
+            if self.world_map[row][col] == 'clean':
+                self.world_map[row][col] = 'agent'
+                self.agent_positions[agent_id] = (row, col)
+                break
 
-    def display_map(self,ax):
+
+    def getAgentPos(self, agent_id):
+        if agent_id in self.agent_positions:
+            return self.agent_positions[agent_id]
+        else:
+            return None  # Agent not found
+        
+    def move_agent(self, agent_id, new_position):
+        if agent_id in self.agent_positions:
+            current_position = self.agent_positions[agent_id]
+            if self.world_map[current_position[0]][current_position[1]] == 'agent':
+                self.world_map[current_position[0]][current_position[1]] = 'clean'  # Clear the current cell
+            self.world_map[new_position[0]][new_position[1]] = 'agent'  # Place the agent in the new cell
+            self.agent_positions[agent_id] = new_position  # Update the agent's position
+
+        
+    def display_map(self, ax):
         ax.clear()  # Clear the current plot
         for row in range(self.rows):
             for col in range(self.cols):
                 if self.world_map[row][col] == 'dirt':
-                    ax.plot(col + 0.5, self.rows - row - 0.5, 'ro', markersize=n)
+                    ax.plot(col + 0.5, self.rows - row - 0.5, 'ro', markersize=10)  # Display dirt as red dots
                 elif self.world_map[row][col] == 'agent':
-                    ax.plot(col + 0.5, self.rows - row - 0.5, 'bo', markersize=n)
+                    ax.plot(col + 0.5, self.rows - row - 0.5, 'bo', markersize=10)  # Display agents as blue dots
                 elif self.world_map[row][col] == 'obs':
-                    ax.plot(col + 0.5, self.rows - row - 0.5, 'ko', markersize=n)
+                    ax.plot(col + 0.5, self.rows - row - 0.5, 'ko', markersize=10)  # Display obstacles as black dots
+
         ax.set_xlim(0, self.cols)
         ax.set_ylim(0, self.rows)
         ax.invert_yaxis()
         ax.set_xticks(range(self.cols))
         ax.set_yticks(range(self.rows))
         ax.grid()
+
     def is_valid_position(self, row, col):
         return 0 <= row < self.rows and 0 <= col < self.cols
 
@@ -74,8 +92,9 @@ class VacuumAgent(Agent):
         self.orientation = random.choice(['N', 'S', 'E', 'W'])  # Initial
         self.roaming=False
         self.edge_path = self.generate_edge_path() # Initialize the class variable
+    
     def perceive(self):
-        self.beliefs['position'] = self.world_map.getAgentPos()
+        self.beliefs['position'] = self.world_map.getAgentPos(self.unique_id)        
         visible_cells = self.get_visible_cells()
         self.desires['clean'] = self._find_dirt_in_visible_cells(visible_cells)
 
@@ -156,21 +175,13 @@ class VacuumAgent(Agent):
         came_from = {}
         path = a_star_search(current, goal)
         return path
+    
     def act(self):
         if self.intentions['clean']:
             target_row, target_col = self.intentions['clean'][0]
             current_row, current_col = self.beliefs['position']
-            # Check if the dirt is adjacent in both horizontal and vertical directions
-            if abs(target_row - current_row) <= 1 and abs(target_col - current_col) <= 1:
-                # Agent is adjacent to the dirt, so it can clean it
-                self.world_map.move_agent(self, self.beliefs['position'], self.intentions['clean'][0])
-                self.beliefs['position'] = self.intentions['clean'][0]
-                self.intentions['clean'].pop(0)
-            else:
-                # Agent is not adjacent to the dirt, so it will move closer
-                # self.findPath(self.intentions['clean'])
-                self.world_map.move_agent(self, self.beliefs['position'], self.intentions['clean'][0])
-                self.intentions['clean'].pop(0)
+            self.world_map.move_agent(self.unique_id, self.intentions['clean'][0])
+            self.intentions['clean'].pop(0)
         else:
             # Roam randomly if there are no desires
             self.roam()
@@ -199,27 +210,20 @@ class VacuumAgent(Agent):
 
             # Set the roaming status to True
             self.roaming = True
-        else:
-            # Reset the roaming status
-            self.roaming = False
 
 
     def distance(self, pos1, pos2):
         return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
-
     def generate_edge_path(self):
-        bottom = self.find_path((0, 0), (0, self.world_map.rows-1))
+        new_edge_path = [(0, 0)]
+        for i in reversed(range(self.world_map.rows)):
+            for j in range(self.world_map.cols):
+                add = self.find_path(new_edge_path[-1], (j, i - 1))
+                new_edge_path.extend(add)
 
-        right = self.find_path(bottom[-1], (self.world_map.rows-1, self.world_map.cols-1))
-        top = self.find_path(right[-1], (self.world_map.rows-1, 0))
-        left = self.find_path(top[-1], (0, 0))
-
-        new_edge_path =[(0,0)] + bottom + right + top + left
         return new_edge_path
     
-    def clean_space(self, row, col):
-        self.world_map.clean_space(row, col)
     def _find_dirt(self):
         dirt_positions = [(row, col) for row in range(self.world_map.rows) for col in range(self.world_map.cols) if self.world_map.world_map[row][col] == 'dirt']
         if dirt_positions:
@@ -237,22 +241,19 @@ class VacuumAgent(Agent):
                        
 
 class VacuumModel(Model):
-    def __init__(self, width, height, num_agents, num_dirt_blocks, max_steps):
+    def __init__(self, width, height, num_agents, num_dirt_blocks, max_steps, num_obs):
         self.num_agents = num_agents
         self.grid = MultiGrid(width, height, torus=False)
         self.schedule = RandomActivation(self)
         self.max_steps = max_steps
         self.performance_data = []
-        
-        self.world_map = WorldMap(width, height, num_dirt_blocks)
+
+        self.world_map = WorldMap(width, height, num_dirt_blocks, num_obs)
 
         for i in range(num_agents):
+            self.world_map.add_agent(i)  # Provide the agent_id
             agent = VacuumAgent(i, self, self.world_map)
-            x = random.randrange(self.world_map.rows)
-            y = random.randrange(self.world_map.cols)
-            agent.pos = (x, y)
             self.schedule.add(agent)
-    
     def step(self):
         if self.schedule.time < self.max_steps:
             self.performance_data.append(self.calculate_performance())
@@ -260,7 +261,7 @@ class VacuumModel(Model):
         
         
     def calculate_performance(self):
-        cleaned_cells = sum([1 for row in self.world_map.world_map for cell in row if cell == 'clean'])
+        cleaned_cells =self.world_map.num_dirt_blocks - sum([1 for row in self.world_map.world_map for cell in row if cell == 'dirt'])
         total_cells = self.world_map.num_dirt_blocks
         performance = cleaned_cells / total_cells
         return performance
@@ -272,34 +273,23 @@ class VacuumModel(Model):
                     return False
         return True 
 
-def animate(frame):
-    model.step()
-    ax.clear()
-    model.world_map.display_map(ax)
+def animate(frame, model):
+    if not model.check_postconditions():
+        model.step()  # Step the model
+        ax.clear()  # Clear the current plot
+        model.world_map.display_map(ax)  # Display the updated map
 
 n = 10
-num_agents = 1
+num_agents = 2
 num_dirt_blocks = 20  # Número de espacios sucios iniciales
 max_steps = 80  # Máximo de pasos en la simulación
-t=0
+num_obs=10
+t=1
 # Simulación con una configuración específica
 if t==1:
-    model = VacuumModel(width=n, height=n, num_agents=num_agents, num_dirt_blocks=num_dirt_blocks, max_steps=max_steps)
-
+    model = VacuumModel(width=n, height=n, num_agents=num_agents, num_dirt_blocks=num_dirt_blocks, max_steps=max_steps,num_obs=num_obs)
     fig, ax = plt.subplots(figsize=(7, 7))
-    ani = animation.FuncAnimation(fig, animate, frames=max_steps, repeat=False)
-    plt.show()
-
-    # Genera un gráfico de rendimiento en función del tiempo
-    performance_values = model.performance_data
-    time_steps = list(range(len(performance_values)))
-
-    # Make sure both lists have the same length
-    performance_values.extend([performance_values[-1]] * (max_steps - len(performance_values)))
-    plt.plot(time_steps, performance_values)
-    plt.xlabel('Time Steps')
-    plt.ylabel('Performance')
-    plt.title('Performance over Time')
+    ani = animation.FuncAnimation(fig, animate, frames=max_steps, repeat=False, fargs=(model,))
     plt.show()
 
     # Verificación de postcondiciones
@@ -314,7 +304,7 @@ else:
     time_result = []
 
     for attempt in range(num_attempts):
-        model = VacuumModel(width=n, height=n, num_agents=num_agents, num_dirt_blocks=num_dirt_blocks, max_steps=max_steps)
+        model = VacuumModel(width=n, height=n, num_agents=num_agents, num_dirt_blocks=num_dirt_blocks, max_steps=max_steps,num_obs=num_obs)
         while not model.check_postconditions():
             if model.schedule.time >= max_steps:
                 break
