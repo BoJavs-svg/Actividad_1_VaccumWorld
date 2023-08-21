@@ -219,9 +219,10 @@ class VacuumAgent(Agent):
         new_edge_path = [(0, 0)]
         for i in reversed(range(self.world_map.rows)):
             for j in range(self.world_map.cols):
-                add = self.find_path(new_edge_path[-1], (j, i - 1))
-                new_edge_path.extend(add)
-
+                if self.world_map.world_map[j][i-1]!='dirt':
+                    add = self.find_path(new_edge_path[-1], (j, i - 1))
+                    new_edge_path.extend(add)
+        new_edge_path.extend(self.find_path(new_edge_path[-1],(0,0)))
         return new_edge_path
     
     def _find_dirt(self):
@@ -280,10 +281,10 @@ def animate(frame, model):
         model.world_map.display_map(ax)  # Display the updated map
 
 n = 10
-num_agents = 2
+num_agents = 10
 num_dirt_blocks = 20  # Número de espacios sucios iniciales
 max_steps = 80  # Máximo de pasos en la simulación
-num_obs=10
+num_obs=5
 t=1
 # Simulación con una configuración específica
 if t==1:
@@ -292,6 +293,15 @@ if t==1:
     ani = animation.FuncAnimation(fig, animate, frames=max_steps, repeat=False, fargs=(model,))
     plt.show()
 
+    # Genera un gráfico de rendimiento en función del tiempo
+    performance_values = model.performance_data
+    time_steps = list(range(len(performance_values)))
+    plt.plot(time_steps, performance_values)
+
+    plt.xlabel('Time Steps')
+    plt.ylabel('Performance')
+    plt.title('Performance over Time')
+    plt.show()
     # Verificación de postcondiciones
     if model.check_postconditions():
         print("Postconditions met")
